@@ -93,14 +93,14 @@ class BodyMuxer(nn.Module, abc.ABC):
 
         return self.mapping_to_detectron, self.orphans_in_detectron
 
-    def forward(self, inputs):
+    def forward(self, inputs, stages=''):
         """
         Args:
             inputs (np.ndarray): Shape
                 (batch_size, 3 * DATA_LOADER.NUM_INPUTS, w, h).
         """
         outputs = [
-            body(inputs[:, selected_channels, :, :]) for body,
+            body(inputs[:, selected_channels, :, :], stages=stages) for body,
             selected_channels in zip(self.bodies, self.body_channels)
         ]
 
@@ -311,7 +311,7 @@ class BodyMuxer_Difference(BodyMuxer):
         return (
             output[:, self.merged_dim_out:] - output[:, :-self.merged_dim_out])
 
-    def forward(self, inputs):
+    def forward(self, inputs, stages=''):
         """
         Args:
             inputs (np.ndarray): Shape

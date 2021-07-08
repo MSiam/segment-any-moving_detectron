@@ -105,14 +105,13 @@ def im_detect_all(model, im, box_proposals=None, timers=None, stages=''):
     """
     if timers is None:
         timers = defaultdict(Timer)
-    import pdb; pdb.set_trace()
     timers['im_detect_bbox'].tic()
     if cfg.TEST.BBOX_AUG.ENABLED:
         scores, boxes, im_scale, blob_conv = im_detect_bbox_aug(
-            model, im, box_proposals)
+            model, im, box_proposals, stages=stages)
     else:
         scores, boxes, im_scale, blob_conv = im_detect_bbox(
-            model, im, cfg.TEST.SCALE, cfg.TEST.MAX_SIZE, box_proposals)
+            model, im, cfg.TEST.SCALE, cfg.TEST.MAX_SIZE, box_proposals, stages=stages)
     timers['im_detect_bbox'].toc()
 
     # logging.info('blob_conv means:\n%s', [x.mean() for x in blob_conv[0]])
@@ -184,7 +183,7 @@ def process_return_dict(return_dict, im, im_scale):
     return scores, pred_boxes
 
 
-def im_detect_bbox(model, im, target_scale, target_max_size, boxes=None):
+def im_detect_bbox(model, im, target_scale, target_max_size, boxes=None, stages=''):
     """Prepare the bbox for testing"""
 
     inputs, im_scale = _get_blobs(im, boxes, target_scale, target_max_size)
@@ -209,6 +208,7 @@ def im_detect_bbox(model, im, target_scale, target_max_size, boxes=None):
         inputs['data'] = [torch.from_numpy(inputs['data'])]
         inputs['im_info'] = [torch.from_numpy(inputs['im_info'])]
 
+    inputs['stages'] = [stages]
     return_dict = model(**inputs)
     scores, pred_boxes = process_return_dict(return_dict, im, im_scale)
 
@@ -226,7 +226,7 @@ def im_detect_bbox(model, im, target_scale, target_max_size, boxes=None):
 
     return scores, pred_boxes, im_scale, return_dict['blob_conv']
 
-def im_detect_bbox_aug(model, im, box_proposals=None):
+def im_detect_bbox_aug(model, im, box_proposals=None, stages=''):
     """Performs bbox detection with test-time augmentations.
     Function signature is the same as for im_detect_bbox.
     """
@@ -257,7 +257,8 @@ def im_detect_bbox_aug(model, im, box_proposals=None):
             im,
             cfg.TEST.SCALE,
             cfg.TEST.MAX_SIZE,
-            box_proposals=box_proposals
+            box_proposals=box_proposals,
+            stages=stages
         )
         add_preds_t(scores_hf, boxes_hf)
 
@@ -265,26 +266,26 @@ def im_detect_bbox_aug(model, im, box_proposals=None):
     for scale in cfg.TEST.BBOX_AUG.SCALES:
         max_size = cfg.TEST.BBOX_AUG.MAX_SIZE
         scores_scl, boxes_scl = im_detect_bbox_scale(
-            model, im, scale, max_size, box_proposals
+            model, im, scale, max_size, box_proposals, stages=stages
         )
         add_preds_t(scores_scl, boxes_scl)
 
         if cfg.TEST.BBOX_AUG.SCALE_H_FLIP:
             scores_scl_hf, boxes_scl_hf = im_detect_bbox_scale(
-                model, im, scale, max_size, box_proposals, hflip=True
+                model, im, scale, max_size, box_proposals, hflip=True, stages=stages
             )
             add_preds_t(scores_scl_hf, boxes_scl_hf)
 
     # Perform detection at different aspect ratios
     for aspect_ratio in cfg.TEST.BBOX_AUG.ASPECT_RATIOS:
         scores_ar, boxes_ar = im_detect_bbox_aspect_ratio(
-            model, im, aspect_ratio, box_proposals
+            model, im, aspect_ratio, box_proposals, stages=stages
         )
         add_preds_t(scores_ar, boxes_ar)
 
         if cfg.TEST.BBOX_AUG.ASPECT_RATIO_H_FLIP:
             scores_ar_hf, boxes_ar_hf = im_detect_bbox_aspect_ratio(
-                model, im, aspect_ratio, box_proposals, hflip=True
+                model, im, aspect_ratio, box_proposals, hflip=True, stages=stages
             )
             add_preds_t(scores_ar_hf, boxes_ar_hf)
 
@@ -292,7 +293,7 @@ def im_detect_bbox_aug(model, im, box_proposals=None):
     # ensure that the Caffe2 workspace is populated with blobs corresponding
     # to the original image on return (postcondition of im_detect_bbox)
     scores_i, boxes_i, im_scale_i, blob_conv_i = im_detect_bbox(
-        model, im, cfg.TEST.SCALE, cfg.TEST.MAX_SIZE, boxes=box_proposals
+        model, im, cfg.TEST.SCALE, cfg.TEST.MAX_SIZE, boxes=box_proposals, stages=stages
     )
     add_preds_t(scores_i, boxes_i)
 
@@ -324,7 +325,7 @@ def im_detect_bbox_aug(model, im, box_proposals=None):
 
 
 def im_detect_bbox_hflip(
-        model, im, target_scale, target_max_size, box_proposals=None):
+        model, im, target_scale, target_max_size, box_proposals=None, stages=''):
     """Performs bbox detection on the horizontally flipped image.
     Function signature is the same as for im_detect_bbox.
     """
@@ -338,7 +339,7 @@ def im_detect_bbox_hflip(
         box_proposals_hf = None
 
     scores_hf, boxes_hf, im_scale, _ = im_detect_bbox(
-        model, im_hf, target_scale, target_max_size, boxes=box_proposals_hf
+        model, im_hf, target_scale, target_max_size, boxes=box_proposals_hf, stages=stages
     )
 
     # Invert the detections computed on the flipped image
@@ -348,23 +349,23 @@ def im_detect_bbox_hflip(
 
 
 def im_detect_bbox_scale(
-        model, im, target_scale, target_max_size, box_proposals=None, hflip=False):
+        model, im, target_scale, target_max_size, box_proposals=None, hflip=False, stages=''):
     """Computes bbox detections at the given scale.
     Returns predictions in the original image space.
     """
     if hflip:
         scores_scl, boxes_scl, _ = im_detect_bbox_hflip(
-            model, im, target_scale, target_max_size, box_proposals=box_proposals
+            model, im, target_scale, target_max_size, box_proposals=box_proposals, stages=stages
         )
     else:
         scores_scl, boxes_scl, _, _ = im_detect_bbox(
-            model, im, target_scale, target_max_size, boxes=box_proposals
+            model, im, target_scale, target_max_size, boxes=box_proposals, stages=stages
         )
     return scores_scl, boxes_scl
 
 
 def im_detect_bbox_aspect_ratio(
-        model, im, aspect_ratio, box_proposals=None, hflip=False):
+        model, im, aspect_ratio, box_proposals=None, hflip=False, stages=''):
     """Computes bbox detections at the given width-relative aspect ratio.
     Returns predictions in the original image space.
     """
@@ -385,7 +386,8 @@ def im_detect_bbox_aspect_ratio(
             im_ar,
             cfg.TEST.SCALE,
             cfg.TEST.MAX_SIZE,
-            box_proposals=box_proposals_ar
+            box_proposals=box_proposals_ar,
+            stages=stages
         )
     else:
         scores_ar, boxes_ar, _, _ = im_detect_bbox(
@@ -393,7 +395,8 @@ def im_detect_bbox_aspect_ratio(
             im_ar,
             cfg.TEST.SCALE,
             cfg.TEST.MAX_SIZE,
-            boxes=box_proposals_ar
+            boxes=box_proposals_ar,
+            stages=stages
         )
 
     # Invert the detected boxes
@@ -430,7 +433,7 @@ def im_detect_mask(model, im_scale, boxes, blob_conv, stages=''):
     if cfg.FPN.MULTILEVEL_ROIS:
         _add_multilevel_rois_for_test(inputs, 'mask_rois')
 
-    pred_masks = model.module.mask_net(blob_conv, inputs, stages=stages)
+    pred_masks = model.module.mask_net(blob_conv, inputs)
     pred_masks = pred_masks.data.cpu().numpy().squeeze()
 
     if cfg.MRCNN.CLS_SPECIFIC_MASK:

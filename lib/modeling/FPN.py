@@ -224,7 +224,7 @@ class fpn(nn.Module):
 
         return mapping_to_detectron, orphan_in_detectron
 
-    def forward(self, x):
+    def forward(self, x, stages=''):
         conv_body_blobs = [self.conv_body.res1(x)]
         for i in range(1, self.conv_body.convX):
             conv_body_blobs.append(
