@@ -159,7 +159,7 @@ def parse_args():
         type=int,
         help='If specified, update num classes to this.')
     parser.add_argument('--quiet', action='store_true')
-
+    parser.add_argument('--stages', type=str, default='')
     args = parser.parse_args()
 
     return args
@@ -475,9 +475,8 @@ def main():
             image_list.append(im)
 
         timers = defaultdict(Timer)
-
         outputs = im_detect_all(
-            maskRCNN, pack_sequence(image_list), timers=timers)
+            maskRCNN, pack_sequence(image_list), timers=timers, stages=args.stages)
         if not cfg.MODEL.MERGE_WITH_APPEARANCE.ENABLED:
             cls_boxes, cls_segms, cls_keyps = outputs
         else:

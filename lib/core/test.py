@@ -50,7 +50,7 @@ import utils.keypoints as keypoint_utils
 
 
 def im_detect_all_after_box(model, im, im_scale, blob_conv, scores, boxes,
-                            timers=None):
+                            timers=None, stages=''):
     if timers is None:
         timers = defaultdict(Timer)
     # score and boxes are from the whole image after score thresholding and nms
@@ -64,9 +64,9 @@ def im_detect_all_after_box(model, im, im_scale, blob_conv, scores, boxes,
     if cfg.MODEL.MASK_ON and boxes.shape[0] > 0:
         timers['im_detect_mask'].tic()
         if cfg.TEST.MASK_AUG.ENABLED:
-            masks = im_detect_mask_aug(model, im, boxes, im_scale, blob_conv)
+            masks = im_detect_mask_aug(model, im, boxes, im_scale, blob_conv, stages=stages)
         else:
-            masks = im_detect_mask(model, im_scale, boxes, blob_conv)
+            masks = im_detect_mask(model, im_scale, boxes, blob_conv, stages=stages)
         timers['im_detect_mask'].toc()
 
         timers['misc_mask'].tic()
@@ -92,7 +92,7 @@ def im_detect_all_after_box(model, im, im_scale, blob_conv, scores, boxes,
     return cls_boxes, cls_segms, cls_keyps
 
 
-def im_detect_all(model, im, box_proposals=None, timers=None):
+def im_detect_all(model, im, box_proposals=None, timers=None, stages=''):
     """Process the outputs of model for testing
 
     Args:
@@ -101,10 +101,11 @@ def im_detect_all(model, im, box_proposals=None, timers=None):
           multiple inputs, num_channels = 3 * NUM_INPUTS.
         box_proposals
         timer: record the cost of time for different steps
+        stages: stages to extract features from in the model
     """
     if timers is None:
         timers = defaultdict(Timer)
-
+    import pdb; pdb.set_trace()
     timers['im_detect_bbox'].tic()
     if cfg.TEST.BBOX_AUG.ENABLED:
         scores, boxes, im_scale, blob_conv = im_detect_bbox_aug(
@@ -120,7 +121,8 @@ def im_detect_all(model, im, box_proposals=None, timers=None):
                                        im=im,
                                        im_scale=im_scale,
                                        blob_conv=blob_conv,
-                                       timers=timers)
+                                       timers=timers,
+                                       stages=stages)
     if cfg.MODEL.MERGE_WITH_APPEARANCE.ENABLED:
         scores, appearance_scores = scores
         boxes, appearance_boxes = boxes
@@ -400,7 +402,7 @@ def im_detect_bbox_aspect_ratio(
     return scores_ar, boxes_inv
 
 
-def im_detect_mask(model, im_scale, boxes, blob_conv):
+def im_detect_mask(model, im_scale, boxes, blob_conv, stages=''):
     """Infer instance segmentation masks. This function must be called after
     im_detect_bbox as it assumes that the Caffe2 workspace is already populated
     with the necessary blobs.
@@ -428,7 +430,7 @@ def im_detect_mask(model, im_scale, boxes, blob_conv):
     if cfg.FPN.MULTILEVEL_ROIS:
         _add_multilevel_rois_for_test(inputs, 'mask_rois')
 
-    pred_masks = model.module.mask_net(blob_conv, inputs)
+    pred_masks = model.module.mask_net(blob_conv, inputs, stages=stages)
     pred_masks = pred_masks.data.cpu().numpy().squeeze()
 
     if cfg.MRCNN.CLS_SPECIFIC_MASK:
@@ -439,7 +441,7 @@ def im_detect_mask(model, im_scale, boxes, blob_conv):
     return pred_masks
 
 
-def im_detect_mask_aug(model, im, boxes, im_scale, blob_conv):
+def im_detect_mask_aug(model, im, boxes, im_scale, blob_conv, stages=''):
     """Performs mask detection with test-time augmentations.
 
     Arguments:
@@ -459,36 +461,36 @@ def im_detect_mask_aug(model, im, boxes, im_scale, blob_conv):
     masks_ts = []
 
     # Compute masks for the original image (identity transform)
-    masks_i = im_detect_mask(model, im_scale, boxes, blob_conv)
+    masks_i = im_detect_mask(model, im_scale, boxes, blob_conv, stages=stages)
     masks_ts.append(masks_i)
 
     # Perform mask detection on the horizontally flipped image
     if cfg.TEST.MASK_AUG.H_FLIP:
         masks_hf = im_detect_mask_hflip(
-            model, im, cfg.TEST.SCALE, cfg.TEST.MAX_SIZE, boxes
+            model, im, cfg.TEST.SCALE, cfg.TEST.MAX_SIZE, boxes, stages=stages
         )
         masks_ts.append(masks_hf)
 
     # Compute detections at different scales
     for scale in cfg.TEST.MASK_AUG.SCALES:
         max_size = cfg.TEST.MASK_AUG.MAX_SIZE
-        masks_scl = im_detect_mask_scale(model, im, scale, max_size, boxes)
+        masks_scl = im_detect_mask_scale(model, im, scale, max_size, boxes, stages=stages)
         masks_ts.append(masks_scl)
 
         if cfg.TEST.MASK_AUG.SCALE_H_FLIP:
             masks_scl_hf = im_detect_mask_scale(
-                model, im, scale, max_size, boxes, hflip=True
+                model, im, scale, max_size, boxes, hflip=True, stages=stages
             )
             masks_ts.append(masks_scl_hf)
 
     # Compute masks at different aspect ratios
     for aspect_ratio in cfg.TEST.MASK_AUG.ASPECT_RATIOS:
-        masks_ar = im_detect_mask_aspect_ratio(model, im, aspect_ratio, boxes)
+        masks_ar = im_detect_mask_aspect_ratio(model, im, aspect_ratio, boxes, stages=stages)
         masks_ts.append(masks_ar)
 
         if cfg.TEST.MASK_AUG.ASPECT_RATIO_H_FLIP:
             masks_ar_hf = im_detect_mask_aspect_ratio(
-                model, im, aspect_ratio, boxes, hflip=True
+                model, im, aspect_ratio, boxes, hflip=True, stages=stages
             )
             masks_ts.append(masks_ar_hf)
 
@@ -513,7 +515,7 @@ def im_detect_mask_aug(model, im, boxes, im_scale, blob_conv):
     return masks_c
 
 
-def im_detect_mask_hflip(model, im, target_scale, target_max_size, boxes):
+def im_detect_mask_hflip(model, im, target_scale, target_max_size, boxes, stages=''):
     """Performs mask detection on the horizontally flipped image.
     Function signature is the same as for im_detect_mask_aug.
     """
@@ -522,7 +524,7 @@ def im_detect_mask_hflip(model, im, target_scale, target_max_size, boxes):
     boxes_hf = box_utils.flip_boxes(boxes, im.shape[1])
 
     blob_conv, im_scale = im_conv_body_only(model, im_hf, target_scale, target_max_size)
-    masks_hf = im_detect_mask(model, im_scale, boxes_hf, blob_conv)
+    masks_hf = im_detect_mask(model, im_scale, boxes_hf, blob_conv, stages=stages)
 
     # Invert the predicted soft masks
     masks_inv = masks_hf[:, :, :, ::-1]
@@ -531,19 +533,19 @@ def im_detect_mask_hflip(model, im, target_scale, target_max_size, boxes):
 
 
 def im_detect_mask_scale(
-        model, im, target_scale, target_max_size, boxes, hflip=False):
+        model, im, target_scale, target_max_size, boxes, hflip=False, stages=''):
     """Computes masks at the given scale."""
     if hflip:
         masks_scl = im_detect_mask_hflip(
-            model, im, target_scale, target_max_size, boxes
+            model, im, target_scale, target_max_size, boxes, stages=stages
         )
     else:
         blob_conv, im_scale = im_conv_body_only(model, im, target_scale, target_max_size)
-        masks_scl = im_detect_mask(model, im_scale, boxes, blob_conv)
+        masks_scl = im_detect_mask(model, im_scale, boxes, blob_conv, stages=stages)
     return masks_scl
 
 
-def im_detect_mask_aspect_ratio(model, im, aspect_ratio, boxes, hflip=False):
+def im_detect_mask_aspect_ratio(model, im, aspect_ratio, boxes, hflip=False, stages=''):
     """Computes mask detections at the given width-relative aspect ratio."""
 
     # Perform mask detection on the transformed image
@@ -555,13 +557,13 @@ def im_detect_mask_aspect_ratio(model, im, aspect_ratio, boxes, hflip=False):
 
     if hflip:
         masks_ar = im_detect_mask_hflip(
-            model, im_ar, cfg.TEST.SCALE, cfg.TEST.MAX_SIZE, boxes_ar
+            model, im_ar, cfg.TEST.SCALE, cfg.TEST.MAX_SIZE, boxes_ar, stages=stages
         )
     else:
         blob_conv, im_scale = im_conv_body_only(
             model, im_ar, cfg.TEST.SCALE, cfg.TEST.MAX_SIZE
         )
-        masks_ar = im_detect_mask(model, im_scale, boxes_ar, blob_conv)
+        masks_ar = im_detect_mask(model, im_scale, boxes_ar, blob_conv, stages=stages)
 
     return masks_ar
 
