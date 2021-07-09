@@ -1,8 +1,8 @@
 import abc
-
+import numpy as np
 import torch
 from torch import nn
-
+from tqdm import tqdm as tqdm
 
 def assert_all_equal(lst, error_prefix=''):
     if any(x != lst[0] for x in lst[1:]):
@@ -93,17 +93,23 @@ class BodyMuxer(nn.Module, abc.ABC):
 
         return self.mapping_to_detectron, self.orphans_in_detectron
 
-    def forward(self, inputs, stages=''):
+    def forward(self, inputs, stages='', paths_list=None):
         """
         Args:
             inputs (np.ndarray): Shape
                 (batch_size, 3 * DATA_LOADER.NUM_INPUTS, w, h).
         """
         outputs = [
-            body(inputs[:, selected_channels, :, :], stages=stages) for body,
+            body(inputs[:, selected_channels, :, :]) for body,
             selected_channels in zip(self.bodies, self.body_channels)
         ]
 
+        interm_feats = []
+        outputs_ = []
+        for i in range(len(outputs)):
+            outputs_.append(outputs[i][0])
+            interm_feats.append(outputs[i][1])
+        outputs = outputs_
         if isinstance(outputs[0], list):
             # FPN, concatenate every corresponding level in outputs.
             num_levels = len(outputs[0])
@@ -111,13 +117,39 @@ class BodyMuxer(nn.Module, abc.ABC):
                 assert len(output) == num_levels, (
                     'Different number of FPN outputs in body %i and body 0 '
                     '(%s vs %s)' % (i+1, len(output), num_levels))
-
             concatenated_outputs = [
                 self._merge([output[level] for output in outputs])
                 for level in range(num_levels)
             ]
         else:
             concatenated_outputs = self._merge(outputs)
+
+        stages = stages.split(':')
+
+        print('Extracting Features')
+        streams_map = {"app_stream": 0, "mot_stream": 1, "sensor_fusion": None}
+        stages_map = {"conv1": 0, "layer1": 1, "layer2": 2, "layer3": 3, "layer4": 4}
+        final_interm_feats = {}
+        for stage in tqdm(stages):
+            stage, stream = stage.split(',')
+            stream_idx = streams_map[stream]
+            stage_idx = stages_map[stage]
+
+            if stream_idx is None:
+                # Sensor Fusion Layers
+                # Layer 4 in sensor fusion is level 0 in FPN, and reverse
+                final_interm_feats[stage+','+stream] = \
+                        concatenated_outputs[len(concatenated_outputs) - stage_idx - 1]
+            else:
+                final_interm_feats[stage+','+stream] = interm_feats[stream_idx][stage_idx]
+
+            original_shape = final_interm_feats[stage+','+stream].shape
+            final_interm_feats[stage+','+stream] = \
+                    final_interm_feats[stage+','+stream].view(*original_shape[:2], -1).mean(dim=2).detach().cpu().numpy()
+
+        current_file = str(paths_list[0])
+        out_file = current_file.replace('imgs', 'feats').replace('png', 'npy')
+        np.save(out_file, final_interm_feats)
         return outputs + [concatenated_outputs]
 
 
@@ -225,7 +257,6 @@ class BodyMuxer_ConcatenateAdapt(BodyMuxer_Concatenate):
 
     @staticmethod
     def adapt_residual(dim_in, dim_out):
-        from modeling.ResNet import add_residual_block
         return add_residual_block(
             dim_in, dim_out, dim_out, dilation=1, stride=1)
 

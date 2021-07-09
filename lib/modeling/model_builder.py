@@ -202,14 +202,16 @@ class Generalized_RCNN(nn.Module):
             for p in child_module.parameters():
                 p.requires_grad = False
 
-    def forward(self, data, im_info, roidb=None, stages='', **rpn_kwargs):
+    def forward(self, data, im_info, roidb=None, stages='', paths_list=None, **rpn_kwargs):
         if cfg.PYTORCH_VERSION_LESS_THAN_040:
-            return self._forward(data, im_info, roidb, stages=stages, **rpn_kwargs)
+            return self._forward(data, im_info, roidb, stages=stages, paths_list=paths_list,
+                                 **rpn_kwargs)
         else:
             with torch.set_grad_enabled(self.training):
-                return self._forward(data, im_info, roidb, stages=stages, **rpn_kwargs)
+                return self._forward(data, im_info, roidb, stages=stages, paths_list=paths_list,
+                                     **rpn_kwargs)
 
-    def _forward(self, data, im_info, roidb=None, stages='', **rpn_kwargs):
+    def _forward(self, data, im_info, roidb=None, stages='', paths_list=None, **rpn_kwargs):
         im_data = data
         if self.training:
             roidb = list(map(lambda x: blob_utils.deserialize(x)[0], roidb))
@@ -217,7 +219,7 @@ class Generalized_RCNN(nn.Module):
         device_id = im_data.get_device()
 
         return_dict = {}  # A dict to collect return variables
-        blob_conv = self.Conv_Body(im_data, stages=stages)
+        blob_conv = self.Conv_Body(im_data, stages=stages, paths_list=paths_list)
         if not isinstance(self.Conv_Body, body_muxer.BodyMuxer):
             blob_conv = [blob_conv]
         if self.merge_appearance:

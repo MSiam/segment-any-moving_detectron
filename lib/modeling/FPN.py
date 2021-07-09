@@ -224,7 +224,7 @@ class fpn(nn.Module):
 
         return mapping_to_detectron, orphan_in_detectron
 
-    def forward(self, x, stages=''):
+    def forward(self, x):
         conv_body_blobs = [self.conv_body.res1(x)]
         for i in range(1, self.conv_body.convX):
             conv_body_blobs.append(
@@ -252,10 +252,10 @@ class fpn(nn.Module):
 
         if self.P2only:
             # use only the finest level
-            return fpn_output_blobs[-1]
+            return fpn_output_blobs[-1], conv_body_blobs
         else:
             # use all levels
-            return fpn_output_blobs
+            return fpn_output_blobs, conv_body_blobs
 
 
 class topdown_lateral_module(nn.Module):

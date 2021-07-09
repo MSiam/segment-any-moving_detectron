@@ -92,7 +92,7 @@ def im_detect_all_after_box(model, im, im_scale, blob_conv, scores, boxes,
     return cls_boxes, cls_segms, cls_keyps
 
 
-def im_detect_all(model, im, box_proposals=None, timers=None, stages=''):
+def im_detect_all(model, im, box_proposals=None, timers=None, stages='', paths_list=None):
     """Process the outputs of model for testing
 
     Args:
@@ -111,7 +111,8 @@ def im_detect_all(model, im, box_proposals=None, timers=None, stages=''):
             model, im, box_proposals, stages=stages)
     else:
         scores, boxes, im_scale, blob_conv = im_detect_bbox(
-            model, im, cfg.TEST.SCALE, cfg.TEST.MAX_SIZE, box_proposals, stages=stages)
+            model, im, cfg.TEST.SCALE, cfg.TEST.MAX_SIZE, box_proposals, stages=stages,
+            paths_list=paths_list)
     timers['im_detect_bbox'].toc()
 
     # logging.info('blob_conv means:\n%s', [x.mean() for x in blob_conv[0]])
@@ -183,9 +184,8 @@ def process_return_dict(return_dict, im, im_scale):
     return scores, pred_boxes
 
 
-def im_detect_bbox(model, im, target_scale, target_max_size, boxes=None, stages=''):
+def im_detect_bbox(model, im, target_scale, target_max_size, boxes=None, stages='', paths_list=None):
     """Prepare the bbox for testing"""
-
     inputs, im_scale = _get_blobs(im, boxes, target_scale, target_max_size)
 
     if cfg.DEDUP_BOXES > 0 and not cfg.MODEL.FASTER_RCNN:
@@ -209,6 +209,7 @@ def im_detect_bbox(model, im, target_scale, target_max_size, boxes=None, stages=
         inputs['im_info'] = [torch.from_numpy(inputs['im_info'])]
 
     inputs['stages'] = [stages]
+    inputs['paths_list'] = [paths_list]
     return_dict = model(**inputs)
     scores, pred_boxes = process_return_dict(return_dict, im, im_scale)
 

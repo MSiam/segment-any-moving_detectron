@@ -458,6 +458,7 @@ def main():
         # only the appearance stream should be used.
         appearance_only = False
         image_list = []
+        paths_list = []
         for is_flow, image_path in zip(input_is_flow, image_paths):
             if is_flow:
                 if merge_appearance and image_path is None:
@@ -471,12 +472,13 @@ def main():
                         cfg.DATA_LOADER.FLOW.LOW_MAGNITUDE_THRESHOLD)
             else:
                 im = cv2.imread(str(image_path))
+                paths_list.append(image_path)
+
             assert im is not None
             image_list.append(im)
-
         timers = defaultdict(Timer)
         outputs = im_detect_all(
-            maskRCNN, pack_sequence(image_list), timers=timers, stages=args.stages)
+            maskRCNN, pack_sequence(image_list), timers=timers, stages=args.stages, paths_list=paths_list)
         if not cfg.MODEL.MERGE_WITH_APPEARANCE.ENABLED:
             cls_boxes, cls_segms, cls_keyps = outputs
         else:
